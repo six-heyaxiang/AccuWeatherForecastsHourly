@@ -37,7 +37,6 @@ var apikey string = ""
 var cityInfo string = ""
 
 //管道
-var finish chan int
 var quit chan int
 var end chan int
 
@@ -69,35 +68,35 @@ func main() {
 	//设置核心数
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	cities, _ := readFileArray(cityInfo)
-	city := make(chan City, complicate_count*3)
-	result := make(chan City, complicate_count)
-	finish = make(chan int)
-	quit = make(chan int)
-	end = make(chan int)
 	taskCount = len(cities)
+	city := make(chan City, complicate_count*3)
+	end = make(chan int)
+	quit = make(chan int)
+	result := make(chan City, complicate_count)
+	go writeResponseToFile(result)
 	go writeCitiesToChannel(city, cities)
-	for i := 0; i < len(cities); i++ {
+	for i := 0; i < complicate_count; i++ {
 		go startRequest(city, result, quit)
 	}
-	go writeResponseToFile(result)
-	for {
-		if <-end > 0 {
-			break
-		}
+	if <-end > 0 {
+		logger.Println("任务执行完一次")
 	}
 }
 func writeCitiesToChannel(city chan City, cities []City) {
 	for i := 0; i < len(cities); i++ {
 		city <- cities[i]
 	}
+	logger.Println("城市信息写入管道完成")
 }
 func writeResponseToFile(result chan City) {
 	count := 0
+	os.MkdirAll(dataSavePath, 0700)
 	for {
 		city := <-result
 		count++
 		if count == taskCount {
 			quit <- 1
+			break
 		}
 		if len(city.Response) != 0 {
 			path := dataSavePath + city.Id + ".json"
@@ -114,6 +113,7 @@ func writeResponseToFile(result chan City) {
 			file.Close()
 		}
 	}
+	logger.Println("文件写入go程结束")
 }
 
 //发送http请求
@@ -147,6 +147,7 @@ func startRequest(ch chan City, result chan City, quit chan int) {
 		case quitCount = <-quit:
 			if quitCount == taskCount {
 				end <- 1
+				break
 			} else {
 				quit <- (quitCount + 1)
 			}
