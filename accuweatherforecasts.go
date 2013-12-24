@@ -46,7 +46,7 @@ var taskCount int
 type City struct {
 	Id       string
 	AccuKey  string
-	Response string
+	Response []byte
 }
 
 func main() {
@@ -123,6 +123,7 @@ func writeResponseToFile(result chan City) {
 
 //发送http请求
 func startRequest(ch chan City, result chan City, quit chan int) {
+	client := &Client{}
 	for {
 		var city City
 		quitCount := 0
@@ -132,7 +133,7 @@ func startRequest(ch chan City, result chan City, quit chan int) {
 				continue
 			}
 			request, _ := NewRequest("GET", "http://apidev.accuweather.com/forecasts/v1/hourly/24hour/"+city.AccuKey+".json?apiKey="+apikey+"&language=en&details=true", nil)
-			resp, err := DefaultClient.Do(request)
+			resp, err := client.Do(request)
 			if nil != err {
 				logger.Println("城市：" + city.Id + "请求失败：" + city.AccuKey)
 				ch <- city
@@ -146,7 +147,7 @@ func startRequest(ch chan City, result chan City, quit chan int) {
 				continue
 			}
 			resp.Body.Close()
-			city.Response = string(body)
+			city.Response = body
 			result <- city
 		case quitCount = <-quit:
 			if quitCount == taskCount {
