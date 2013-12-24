@@ -99,6 +99,7 @@ func writeResponseToFile(result chan City) {
 	for {
 		city := <-result
 		count++
+
 		if count == taskCount {
 			quit <- 1
 			count = 0
@@ -152,6 +153,7 @@ func startRequest(ch chan City, result chan City, quit chan int) {
 		case quitCount = <-quit:
 			if quitCount == taskCount {
 				end <- 1
+				quitCount = 0
 			} else {
 				quit <- (quitCount + 1)
 			}
