@@ -119,7 +119,6 @@ func writeResponseToFile(result chan City) {
 			file.Close()
 		}
 	}
-	logger.Println("文件写入go程结束")
 }
 
 //发送http请求
@@ -133,8 +132,6 @@ func startRequest(ch chan City, result chan City, quit chan int) {
 				continue
 			}
 			request, _ := NewRequest("GET", "http://apidev.accuweather.com/forecasts/v1/hourly/24hour/"+city.AccuKey+".json?apiKey="+apikey+"&language=en&details=true", nil)
-			//resp, err := http.Get(accuweather.GetForecastHourly(params.ENVRIOMENT_DEVELOPMENT, params.HOURLY_HOUR_24, params.VERSION_1, params.FORMAT_JSON, city.AccuKey, api_key, params.LANGUAGE_ENGLISH, params.DETAILS_FALSE))
-			//resp, err := http.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + api_key + "&language=en&details=true")
 			resp, err := DefaultClient.Do(request)
 			if nil != err {
 				logger.Println("城市：" + city.Id + "请求失败：" + city.AccuKey)
@@ -144,7 +141,7 @@ func startRequest(ch chan City, result chan City, quit chan int) {
 
 			body, err := ioutil.ReadAll(resp.Body)
 			if nil != err {
-				logger.Println("获取响应内容失败！")
+				logger.Println("获取内容失败！")
 				ch <- city
 				continue
 			}
