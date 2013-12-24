@@ -78,15 +78,20 @@ func main() {
 	for i := 0; i < complicate_count; i++ {
 		go startRequest(city, result, quit)
 	}
-	if <-end > 0 {
-		logger.Println("任务执行完一次")
+	for {
+		if <-end > 0 {
+			logger.Println("任务执行完成一次")
+		}
+		time.Sleep(10 * 1000)
+		logger.Println("请求任务再次执行")
+		go writeCitiesToChannel(city, cities)
 	}
 }
 func writeCitiesToChannel(city chan City, cities []City) {
 	for i := 0; i < len(cities); i++ {
 		city <- cities[i]
 	}
-	logger.Println("城市信息写入管道完成")
+	logger.Println("城市信息写入channel完成")
 }
 func writeResponseToFile(result chan City) {
 	count := 0
@@ -96,7 +101,8 @@ func writeResponseToFile(result chan City) {
 		count++
 		if count == taskCount {
 			quit <- 1
-			break
+			count = 0
+			continue
 		}
 		if len(city.Response) != 0 {
 			path := dataSavePath + city.Id + ".json"
@@ -135,19 +141,19 @@ func startRequest(ch chan City, result chan City, quit chan int) {
 				ch <- city
 				continue
 			}
-			defer resp.Body.Close()
+
 			body, err := ioutil.ReadAll(resp.Body)
 			if nil != err {
 				logger.Println("获取响应内容失败！")
 				ch <- city
 				continue
 			}
+			resp.Body.Close()
 			city.Response = string(body)
 			result <- city
 		case quitCount = <-quit:
 			if quitCount == taskCount {
 				end <- 1
-				break
 			} else {
 				quit <- (quitCount + 1)
 			}
