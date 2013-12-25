@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"net"
 	"net/http"
 	. "net/http"
 	"os"
@@ -102,6 +101,7 @@ func writeResponseToFile(result chan City) {
 	for {
 		city := <-result
 		count++
+		fmt.Println(count)
 		if len(city.Response) != 0 {
 			path := dataSavePath + city.Id + ".json"
 			file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0660)
@@ -126,20 +126,7 @@ func writeResponseToFile(result chan City) {
 
 //发送http请求
 func startRequest(ch chan City, result chan City, quit chan int) {
-	client := &http.Client{
-		Transport: &http.Transport{
-			Dial: func(netw, addr string) (net.Conn, error) {
-				deadline := time.Now().Add(10 * time.Second)
-				c, err := net.DialTimeout(netw, addr, 5*time.Second) //连接超时时间
-				if err != nil {
-					return nil, err
-				}
-
-				c.SetDeadline(deadline)
-				return c, nil
-			},
-		},
-	}
+	client := &http.Client{}
 	for {
 		var city City
 		quitCount := 0
@@ -175,8 +162,10 @@ func startRequest(ch chan City, result chan City, quit chan int) {
 			city.Response = body
 			result <- city
 		case quitCount = <-quit:
+			fmt.Println(quitCount)
 			if quitCount == taskCount {
 				end <- 1
+				fmt.Println("again")
 				quitCount = 0
 			} else {
 				quit <- (quitCount + 1)
