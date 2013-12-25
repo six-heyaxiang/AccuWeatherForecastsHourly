@@ -3,13 +3,14 @@ package main
 
 import (
 	"bufio"
-	"compress/gzip"
+	//"compress/gzip"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	//"net"
 	"net/http"
-	. "net/http"
+	//. "net/http"
 	"os"
 	"regexp"
 	"runtime"
@@ -71,7 +72,7 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	cities, _ := readFileArray(cityInfo)
 	taskCount = len(cities)
-	city := make(chan City, complicate_count*3)
+	city := make(chan City, complicate_count)
 	end = make(chan int)
 	quit = make(chan int)
 	result := make(chan City, complicate_count)
@@ -80,13 +81,8 @@ func main() {
 	for i := 0; i < complicate_count; i++ {
 		go startRequest(city, result, quit)
 	}
-	for {
-		if <-end > 0 {
-			logger.Println("任务执行完成一次")
-		}
-		time.Sleep(10 * 1000)
-		logger.Println("请求任务再次执行")
-		go writeCitiesToChannel(city, cities)
+	if <-end > 0 {
+		logger.Println("任务执行完成一次")
 	}
 }
 func writeCitiesToChannel(city chan City, cities []City) {
@@ -97,11 +93,14 @@ func writeCitiesToChannel(city chan City, cities []City) {
 }
 func writeResponseToFile(result chan City) {
 	count := 0
-	os.MkdirAll(dataSavePath, 0700)
+	err := os.MkdirAll(dataSavePath, 0700)
+	if err != nil {
+		logger.Println("创建文件保存目录失败")
+	}
+	var city City
 	for {
-		city := <-result
+		city = <-result
 		count++
-		fmt.Println(count)
 		if len(city.Response) != 0 {
 			path := dataSavePath + city.Id + ".json"
 			file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0660)
@@ -126,7 +125,6 @@ func writeResponseToFile(result chan City) {
 
 //发送http请求
 func startRequest(ch chan City, result chan City, quit chan int) {
-	client := &http.Client{}
 	for {
 		var city City
 		quitCount := 0
@@ -135,29 +133,19 @@ func startRequest(ch chan City, result chan City, quit chan int) {
 			if len(city.Id) == 0 || len(city.AccuKey) == 0 {
 				continue
 			}
-			request, _ := NewRequest("GET", "http://apidev.accuweather.com/forecasts/v1/hourly/24hour/"+city.AccuKey+".json?apiKey="+apikey+"&language=en&details=true", nil)
-			request.Header.Set("User-Agent", "Mozilla/5.0")
-			request.Header.Set("Accept-Encoding", "gzip")
-			resp, err := client.Do(request)
+			resp, err := http.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
 			if nil != err {
 				logger.Println("城市：" + city.Id + "请求失败：" + city.AccuKey)
 				ch <- city
 				continue
 			}
-			var reader io.ReadCloser
-			switch resp.Header.Get("Content-Encoding") {
-			case "gzip":
-				reader, _ = gzip.NewReader(resp.Body)
-			default:
-				reader = resp.Body
-			}
-			body, err := ioutil.ReadAll(reader)
+			body, err := ioutil.ReadAll(resp.Body)
 			if nil != err {
 				logger.Println("获取内容失败！")
 				ch <- city
 				continue
 			}
-			reader.Close()
+			//reader.Close()
 			resp.Body.Close()
 			city.Response = body
 			result <- city
