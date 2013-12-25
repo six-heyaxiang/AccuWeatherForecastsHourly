@@ -3,10 +3,13 @@ package main
 
 import (
 	"bufio"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
+	"net/http"
 	. "net/http"
 	"os"
 	"regexp"
@@ -99,12 +102,6 @@ func writeResponseToFile(result chan City) {
 	for {
 		city := <-result
 		count++
-
-		if count == taskCount {
-			quit <- 1
-			count = 0
-			continue
-		}
 		if len(city.Response) != 0 {
 			path := dataSavePath + city.Id + ".json"
 			file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0660)
@@ -119,12 +116,30 @@ func writeResponseToFile(result chan City) {
 			}
 			file.Close()
 		}
+		if count == taskCount {
+			quit <- 1
+			count = 0
+			continue
+		}
 	}
 }
 
 //发送http请求
 func startRequest(ch chan City, result chan City, quit chan int) {
-	client := &Client{}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Dial: func(netw, addr string) (net.Conn, error) {
+				deadline := time.Now().Add(10 * time.Second)
+				c, err := net.DialTimeout(netw, addr, 5*time.Second) //连接超时时间
+				if err != nil {
+					return nil, err
+				}
+
+				c.SetDeadline(deadline)
+				return c, nil
+			},
+		},
+	}
 	for {
 		var city City
 		quitCount := 0
@@ -134,19 +149,28 @@ func startRequest(ch chan City, result chan City, quit chan int) {
 				continue
 			}
 			request, _ := NewRequest("GET", "http://apidev.accuweather.com/forecasts/v1/hourly/24hour/"+city.AccuKey+".json?apiKey="+apikey+"&language=en&details=true", nil)
+			request.Header.Set("User-Agent", "Mozilla/5.0")
+			request.Header.Set("Accept-Encoding", "gzip")
 			resp, err := client.Do(request)
 			if nil != err {
 				logger.Println("城市：" + city.Id + "请求失败：" + city.AccuKey)
 				ch <- city
 				continue
 			}
-
-			body, err := ioutil.ReadAll(resp.Body)
+			var reader io.ReadCloser
+			switch resp.Header.Get("Content-Encoding") {
+			case "gzip":
+				reader, _ = gzip.NewReader(resp.Body)
+			default:
+				reader = resp.Body
+			}
+			body, err := ioutil.ReadAll(reader)
 			if nil != err {
 				logger.Println("获取内容失败！")
 				ch <- city
 				continue
 			}
+			reader.Close()
 			resp.Body.Close()
 			city.Response = body
 			result <- city
