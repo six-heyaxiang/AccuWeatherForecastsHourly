@@ -8,9 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	//"net"
 	"net/http"
-	//. "net/http"
 	"os"
 	"regexp"
 	"runtime"
@@ -42,8 +40,10 @@ var cityInfo string = ""
 //管道
 var quit chan int
 var end chan int
+var city chan City //主管道
 
 var taskCount int
+var finishCount int = 0
 
 //City类
 type City struct {
@@ -72,7 +72,7 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	cities, _ := readFileArray(cityInfo)
 	taskCount = len(cities)
-	city := make(chan City, complicate_count)
+	city = make(chan City, complicate_count*2)
 	end = make(chan int)
 	quit = make(chan int)
 	result := make(chan City, complicate_count)
@@ -92,7 +92,6 @@ func writeCitiesToChannel(city chan City, cities []City) {
 	logger.Println("城市信息写入channel完成")
 }
 func writeResponseToFile(result chan City) {
-	count := 0
 	err := os.MkdirAll(dataSavePath, 0700)
 	if err != nil {
 		logger.Println("创建文件保存目录失败")
@@ -100,7 +99,7 @@ func writeResponseToFile(result chan City) {
 	var city City
 	for {
 		city = <-result
-		count++
+		fmt.Println(finishCount)
 		if len(city.Response) != 0 {
 			path := dataSavePath + city.Id + ".json"
 			file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0660)
@@ -114,50 +113,45 @@ func writeResponseToFile(result chan City) {
 				}
 			}
 			file.Close()
+			finishCount++
 		}
-		if count == taskCount {
+		if finishCount == taskCount {
 			quit <- 1
-			count = 0
-			continue
+			finishCount = 0
 		}
 	}
 }
 
 //发送http请求
 func startRequest(ch chan City, result chan City, quit chan int) {
+	client := &http.Client{}
 	for {
 		var city City
-		quitCount := 0
 		select {
 		case city = <-ch:
 			if len(city.Id) == 0 || len(city.AccuKey) == 0 {
 				continue
 			}
-			resp, err := http.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
+			//request, _ := http.NewRequest("GET", "http://apidev.accuweather.com/forecasts/v1/hourly/24hour/"+city.AccuKey+".json?apiKey="+apikey+"&language=en&details=true", nil)
+			//resp, err := http.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
+			//resp, err := client.Do(request)
+			resp, err := client.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
 			if nil != err {
 				logger.Println("城市：" + city.Id + "请求失败：" + city.AccuKey)
 				ch <- city
 				continue
 			}
 			body, err := ioutil.ReadAll(resp.Body)
-			if nil != err {
+			if nil != err && len(body) != 0 {
 				logger.Println("获取内容失败！")
 				ch <- city
 				continue
 			}
-			//reader.Close()
 			resp.Body.Close()
 			city.Response = body
 			result <- city
-		case quitCount = <-quit:
-			fmt.Println(quitCount)
-			if quitCount == taskCount {
-				end <- 1
-				fmt.Println("again")
-				quitCount = 0
-			} else {
-				quit <- (quitCount + 1)
-			}
+		case <-quit:
+			end <- 1
 		}
 	}
 }
