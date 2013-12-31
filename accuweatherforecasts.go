@@ -102,18 +102,10 @@ func main() {
 	defer close(city)
 	end = make(chan int)
 	defer close(end)
-	var heart [1000]chan int
 	go writeCitiesToChannel(city, cities)
 	for i := 0; i < complicate_count; i++ {
-		heart[i] = make(chan int)
-		go startRequest(city, heart[i])
+		go startRequest(city)
 	}
-	//go func() {
-	//	time.Sleep(time.Second * 5)
-	//	for i := 0; i < complicate_count; i++ {
-	//		heart[i] <- 1
-	//	}
-	//}()
 	if <-end > 0 {
 		logger.Println("任务执行完成一次")
 	}
@@ -154,86 +146,82 @@ func writeCitiesToChannel(city chan City, cities []City) {
 }
 
 //发送http请求
-func startRequest(ch chan City, heart chan int) {
+func startRequest(ch chan City) {
 	client := &http.Client{}
-	var city City
 	for {
-		select {
-		case city = <-ch:
-			if finishCount == taskCount {
-				runtime.Goexit()
-			}
-			if len(city.Id) == 0 || len(city.AccuKey) == 0 {
-				continue
-			}
-			//resp, err := http.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
-			resp, err := client.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
-			if nil != err {
-				logger.Println("城市：" + city.Id + "请求失败：" + city.AccuKey)
-				ch <- city
-				continue
-			}
-			body, err := ioutil.ReadAll(resp.Body)
-			if nil != err && len(body) != 0 {
-				logger.Println("获取内容失败！")
-				ch <- city
-				continue
-			}
-			resp.Body.Close()
-			//save datas
-			var hourly Hourly
-			var save Hourly
-			var history Hour
-			json.Unmarshal(body, &hourly.Hours)
-			for _, v := range hourly.Hours {
-				data_Tmperature, _ := v.Temperature.(map[string]interface{})
-				data_RealFeelTemperature, _ := v.RealFeelTemperature.(map[string]interface{})
-				save.Hours = append(save.Hours, Hour{DateTime: v.DateTime, WeatherIcon: v.WeatherIcon, IconPhrase: v.IconPhrase, RelativeHumidity: v.RelativeHumidity, Temperature: data_Tmperature["Value"], RealFeelTemperature: data_RealFeelTemperature["Value"], Unit: data_Tmperature["Unit"].(string)})
-				if k == 0 {
-					history = save.Hours[0]
-				}
-			}
-			//save future 24 hours forecast data
-			data_24, err24 := json.Marshal(save)
-			if err24 != nil {
-				fmt.Println("data_24 json err:", err)
-			}
-			path_24 := dataSavePath_24 + city.Path + city.Id + ".json"
-			file_24, err_24 := os.OpenFile(path_24, os.O_CREATE|os.O_RDWR, 0660)
-			if nil != err_24 {
-				logger.Println(city.Id + ".json打开文件失败！")
-				continue
-			} else {
-				_, err_24 := file_24.Write(data_24)
-				if nil != err_24 {
-					logger.Println(city.Id + ".json 写入失败！")
-				}
-			}
-			file_24.Close()
-			//save future 24 hours first hour forecast date
-			data_1, err_1 := json.Marshal(history)
-			if err_1 != nil {
-				logger.Panicln("data_1 json err", err_1)
-			}
-			dir := history.DateTime[11:13]
-			path_1 := dataSavePath_1 + dir + "/" + city.Id + ".json"
-			file_1, err_1 := os.OpenFile(path_1, os.O_CREATE|os.O_RDWR, 0660)
-			if nil != err_1 {
-				logger.Println(city.Id + ".json打开文件失败！")
-				continue
-			} else {
-				_, err_1 := file_1.Write(data_1)
-				if nil != err_1 {
-					logger.Println(city.Id + ".json 写入失败！")
-				}
-			}
-			file_1.Close()
-			l.Lock()
-			finishCount++
-			fmt.Println(finishCount)
-			l.Unlock()
-		case <-heart:
+		city := <-ch
+		if finishCount == taskCount {
+			runtime.Goexit()
 		}
+		if len(city.Id) == 0 || len(city.AccuKey) == 0 {
+			continue
+		}
+		//resp, err := http.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
+		resp, err := client.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
+		if nil != err {
+			logger.Println("城市：" + city.Id + "请求失败：" + city.AccuKey)
+			ch <- city
+			continue
+		}
+		body, err := ioutil.ReadAll(resp.Body)
+		if nil != err && len(body) != 0 {
+			logger.Println("获取内容失败！")
+			ch <- city
+			continue
+		}
+		resp.Body.Close()
+		//save datas
+		var hourly Hourly
+		var save Hourly
+		var history Hour
+		json.Unmarshal(body, &hourly.Hours)
+		for k, v := range hourly.Hours {
+			data_Tmperature, _ := v.Temperature.(map[string]interface{})
+			data_RealFeelTemperature, _ := v.RealFeelTemperature.(map[string]interface{})
+			save.Hours = append(save.Hours, Hour{DateTime: v.DateTime, WeatherIcon: v.WeatherIcon, IconPhrase: v.IconPhrase, RelativeHumidity: v.RelativeHumidity, Temperature: data_Tmperature["Value"], RealFeelTemperature: data_RealFeelTemperature["Value"], Unit: data_Tmperature["Unit"].(string)})
+			if k == 0 {
+				history = save.Hours[0]
+			}
+		}
+		//save future 24 hours forecast data
+		data_24, err24 := json.Marshal(save)
+		if err24 != nil {
+			fmt.Println("data_24 json err:", err)
+		}
+		path_24 := dataSavePath_24 + city.Path + city.Id + ".json"
+		file_24, err_24 := os.OpenFile(path_24, os.O_CREATE|os.O_RDWR, 0660)
+		if nil != err_24 {
+			logger.Println(city.Id + ".json打开文件失败！")
+			continue
+		} else {
+			_, err_24 := file_24.Write(data_24)
+			if nil != err_24 {
+				logger.Println(city.Id + ".json 写入失败！")
+			}
+		}
+		file_24.Close()
+		//save future 24 hours first hour forecast date
+		data_1, err_1 := json.Marshal(history)
+		if err_1 != nil {
+			logger.Panicln("data_1 json err", err_1)
+		}
+		dir := history.DateTime[11:13]
+		path_1 := dataSavePath_1 + dir + "/" + city.Id + ".json"
+		file_1, err_1 := os.OpenFile(path_1, os.O_CREATE|os.O_RDWR, 0660)
+		if nil != err_1 {
+			logger.Println(city.Id + ".json打开文件失败！")
+			continue
+		} else {
+			_, err_1 := file_1.Write(data_1)
+			if nil != err_1 {
+				logger.Println(city.Id + ".json 写入失败！")
+			}
+		}
+		file_1.Close()
+		l.Lock()
+		finishCount++
+		fmt.Println(finishCount)
+		l.Unlock()
 	}
 }
 
