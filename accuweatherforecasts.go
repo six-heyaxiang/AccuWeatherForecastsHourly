@@ -344,4 +344,3 @@ func readFileArray(fileName string) (result []City, err error) {
 	}
 	return cities, nil
 }
-
