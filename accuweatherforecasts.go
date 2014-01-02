@@ -118,7 +118,7 @@ func main() {
 func makeSaveDirs() {
 	//创建24小时预报数据保存路径
 	for i := 0; i < 100; i++ {
-		err := os.MkdirAll(dataSavePath_24+strconv.Itoa(i), 0777)
+		err := os.MkdirAll(dataSavePath_24+strconv.Itoa(i), 0660)
 		if err != nil {
 			logger.Panicln("创建文件保存目录失败")
 		}
@@ -126,12 +126,12 @@ func makeSaveDirs() {
 	//创建历史1小时预报数据保存目录
 	for i := 0; i < 24; i++ {
 		if i < 10 {
-			err := os.MkdirAll(dataSavePath_1+"0"+strconv.Itoa(i), 0777)
+			err := os.MkdirAll(dataSavePath_1+"0"+strconv.Itoa(i), 0660)
 			if err != nil {
 				logger.Panicln("创建文件保存目录失败")
 			}
 		} else {
-			err := os.MkdirAll(dataSavePath_1+strconv.Itoa(i), 0777)
+			err := os.MkdirAll(dataSavePath_1+strconv.Itoa(i), 0660)
 			if err != nil {
 				logger.Panicln("创建文件保存目录失败")
 			}
@@ -296,7 +296,7 @@ func startRequest(ch chan City) {
 
 //设置日志保存路径和文件文件名
 func setLoggerSaveFile(filePath string, fileName string) (loger *log.Logger, err error) {
-	dirErr := os.MkdirAll(filePath, 0700)
+	dirErr := os.MkdirAll(filePath, 0660)
 	if dirErr != nil {
 		fmt.Println("日志文件目录创建失败！")
 		return nil, dirErr
