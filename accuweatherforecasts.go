@@ -49,16 +49,16 @@ var taskCount int
 //任务完成数据
 var finishCount int = 0
 var l sync.Mutex
-var connectTimeout time.Duration
-var readWriteTimeout time.Duration
 
-var client *http.Client
+//var connectTimeout time.Duration
+//var readWriteTimeout time.Duration
 
 //City类
 type City struct {
 	Id      string
 	AccuKey string
 	Path    string
+	Count   int
 }
 
 /*************************/
@@ -97,8 +97,8 @@ func main() {
 	logger, _ = setLoggerSaveFile(savePath, savePath+logFileName+"."+strconv.Itoa(t.Year())+"-"+strconv.Itoa(int(t.Month()))+"-"+strconv.Itoa(t.Day()))
 	makeSaveDirs()
 	logger.Println("核心数：" + strconv.Itoa(runtime.NumCPU()) + "协程数：" + strconv.Itoa(complicate_count))
-	connectTimeout = time.Second * 60
-	readWriteTimeout = time.Second * 60
+	//connectTimeout = time.Second * 60
+	//readWriteTimeout = time.Second * 60
 	//设置核心数
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	cities, _ := readFileArray(cityInfo)
@@ -151,43 +151,49 @@ func writeCitiesToChannel(city chan City, cities []City) {
 }
 
 //设置链接超时和读取超时
-func timeoutDialer(cTimeout time.Duration, rwTimeout time.Duration) func(net, addr string) (c net.Conn, err error) {
-	return func(netw, addr string) (net.Conn, error) {
-		conn, err := net.DialTimeout(netw, addr, cTimeout)
-		if err != nil {
-			return nil, err
-		}
-		conn.SetDeadline(time.Now().Add(rwTimeout))
-		return conn, nil
-	}
-}
+//func timeoutDialer(cTimeout time.Duration, rwTimeout time.Duration) func(net, addr string) (c net.Conn, err error) {
+//	return func(netw, addr string) (net.Conn, error) {
+//		conn, err := net.DialTimeout(netw, addr, cTimeout)
+//		if err != nil {
+//			return nil, err
+//		}
+//		conn.SetDeadline(time.Now().Add(rwTimeout))
+//		return conn, nil
+//	}
+//}
 
 //发送http请求
 func startRequest(ch chan City) {
-	//client := &http.Client{}
-	client := &http.Client{
-		Transport: &http.Transport{
-			Dial: timeoutDialer(connectTimeout, readWriteTimeout),
-		},
-	}
+	client := &http.Client{}
+	//client := &http.Client{
+	//	Transport: &http.Transport{
+	//		Dial: timeoutDialer(connectTimeout, readWriteTimeout),
+	//	},
+	//}
 	for {
 		city := <-ch
 		if len(city.Id) == 0 || len(city.AccuKey) == 0 {
 			continue
 		}
 		//request, _ := http.NewRequest("GET", "http://apidev.accuweather.com/forecasts/v1/hourly/24hour/"+city.AccuKey+".json?apiKey="+apikey+"&language=en&details=true", nil)
-		//resp, err := client.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
 		resp, err := client.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
 		//resp, err := http.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
+		//resp, err := client.Do(request)
 		if nil != err {
 			logger.Println("城市：" + city.Id + "请求失败：" + city.AccuKey)
-			ch <- city
+			if city.Count <= 2 {
+				ch <- city
+				city.Count++
+			}
 			continue
 		}
 		body, err := ioutil.ReadAll(resp.Body)
-		if nil != err && len(body) != 0 {
+		if nil != err || len(body) == 0 {
 			logger.Println("获取内容失败！")
-			ch <- city
+			if city.Count <= 2 {
+				ch <- city
+				city.Count++
+			}
 			continue
 		}
 		resp.Body.Close()
@@ -197,8 +203,11 @@ func startRequest(ch chan City) {
 		var history Hour
 		err = json.Unmarshal(body, &hourly.Hours)
 		if err != nil {
-			ch <- city
 			logger.Println("城市：" + city.Id + "解析响应失败，已返回队列！")
+			if city.Count <= 2 {
+				ch <- city
+				city.Count++
+			}
 			continue
 		} else {
 			for k, v := range hourly.Hours {
@@ -212,21 +221,30 @@ func startRequest(ch chan City) {
 			//save future 24 hours forecast data
 			data_24, err24 := json.Marshal(save)
 			if err24 != nil {
-				fmt.Println("data_24 json err:", err)
-				ch <- city
+				logger.Println("data_24 json err:", err)
+				if city.Count <= 2 {
+					ch <- city
+					city.Count++
+				}
 				continue
 			}
 			path_24 := dataSavePath_24 + city.Path + city.Id + ".json"
 			file_24, err_24 := os.OpenFile(path_24, os.O_CREATE|os.O_RDWR, 0660)
 			if nil != err_24 {
 				logger.Println(city.Id + ".json打开文件失败！")
-				ch <- city
+				if city.Count <= 2 {
+					ch <- city
+					city.Count++
+				}
 				continue
 			} else {
 				_, err_24 := file_24.Write(data_24)
 				if nil != err_24 {
 					logger.Println(city.Id + ".json 写入失败！")
-					ch <- city
+					if city.Count <= 2 {
+						ch <- city
+						city.Count++
+					}
 					continue
 				}
 			}
@@ -236,7 +254,11 @@ func startRequest(ch chan City) {
 				data_1, err_1 := json.Marshal(history)
 				if err_1 != nil {
 					logger.Panicln("data_1 json err", err_1)
-					ch <- city
+					city.Count++
+					if city.Count <= 2 {
+						ch <- city
+						city.Count++
+					}
 					continue
 				}
 				dir := history.DateTime[11:13]
@@ -244,13 +266,19 @@ func startRequest(ch chan City) {
 				file_1, err_1 := os.OpenFile(path_1, os.O_CREATE|os.O_RDWR, 0660)
 				if nil != err_1 {
 					logger.Println(city.Id + ".json打开文件失败！")
-					ch <- city
+					if city.Count <= 2 {
+						ch <- city
+						city.Count++
+					}
 					continue
 				} else {
 					_, err_1 := file_1.Write(data_1)
 					if nil != err_1 {
 						logger.Println(city.Id + ".json 写入失败！")
-						ch <- city
+						if city.Count <= 2 {
+							ch <- city
+							city.Count++
+						}
 						continue
 					}
 				}
@@ -262,7 +290,6 @@ func startRequest(ch chan City) {
 			finishCount++
 			fmt.Println(finishCount)
 			l.Unlock()
-
 		}
 	}
 }
@@ -345,9 +372,9 @@ func readFileArray(fileName string) (result []City, err error) {
 			city.AccuKey = items[1]
 			bucket, _ := strconv.Atoi(items[0])
 			city.Path = "/" + strconv.Itoa(bucket%100) + "/"
+			city.Count = 0
 			cities = append(cities, city)
 		}
 	}
 	return cities, nil
 }
-
