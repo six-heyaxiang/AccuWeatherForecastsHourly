@@ -99,11 +99,6 @@ func main() {
 	logger.Println("核心数：" + strconv.Itoa(runtime.NumCPU()) + "协程数：" + strconv.Itoa(complicate_count))
 	connectTimeout = time.Second * 60
 	readWriteTimeout = time.Second * 60
-	//client = &http.Client{
-	//	Transport: &http.Transport{
-	//		Dial: timeoutDialer(connectTimeout, readWriteTimeout),
-	//	},
-	//}
 	//设置核心数
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	cities, _ := readFileArray(cityInfo)
@@ -170,11 +165,11 @@ func timeoutDialer(cTimeout time.Duration, rwTimeout time.Duration) func(net, ad
 //发送http请求
 func startRequest(ch chan City) {
 	//client := &http.Client{}
-	//client := &http.Client{
-	//	Transport: &http.Transport{
-	//		Dial: timeoutDialer(connectTimeout, readWriteTimeout),
-	//	},
-	//}
+	client := &http.Client{
+		Transport: &http.Transport{
+			Dial: timeoutDialer(connectTimeout, readWriteTimeout),
+		},
+	}
 	for {
 		city := <-ch
 		if len(city.Id) == 0 || len(city.AccuKey) == 0 {
@@ -182,8 +177,8 @@ func startRequest(ch chan City) {
 		}
 		//request, _ := http.NewRequest("GET", "http://apidev.accuweather.com/forecasts/v1/hourly/24hour/"+city.AccuKey+".json?apiKey="+apikey+"&language=en&details=true", nil)
 		//resp, err := client.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
-		//resp, err := client.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
-		resp, err := http.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
+		resp, err := client.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
+		//resp, err := http.Get("http://apidev.accuweather.com/forecasts/v1/hourly/24hour/" + city.AccuKey + ".json?apiKey=" + apikey + "&language=en&details=true")
 		if nil != err {
 			logger.Println("城市：" + city.Id + "请求失败：" + city.AccuKey)
 			ch <- city
@@ -200,64 +195,75 @@ func startRequest(ch chan City) {
 		var hourly Hourly
 		var save Hourly
 		var history Hour
-		json.Unmarshal(body, &hourly.Hours)
-		for k, v := range hourly.Hours {
-			data_Tmperature, _ := v.Temperature.(map[string]interface{})
-			data_RealFeelTemperature, _ := v.RealFeelTemperature.(map[string]interface{})
-			save.Hours = append(save.Hours, Hour{DateTime: v.DateTime, WeatherIcon: v.WeatherIcon, IconPhrase: v.IconPhrase, RelativeHumidity: v.RelativeHumidity, Temperature: data_Tmperature["Value"], RealFeelTemperature: data_RealFeelTemperature["Value"], Unit: data_Tmperature["Unit"].(string)})
-			if k == 0 {
-				history = save.Hours[0]
-			}
-		}
-		//save future 24 hours forecast data
-		data_24, err24 := json.Marshal(save)
-		if err24 != nil {
-			fmt.Println("data_24 json err:", err)
+		err = json.Unmarshal(body, &hourly.Hours)
+		if err != nil {
 			ch <- city
-			continue
-		}
-		path_24 := dataSavePath_24 + city.Path + city.Id + ".json"
-		file_24, err_24 := os.OpenFile(path_24, os.O_CREATE|os.O_RDWR, 0660)
-		if nil != err_24 {
-			logger.Println(city.Id + ".json打开文件失败！")
-			ch <- city
+			logger.Println("城市：" + city.Id + "解析响应失败，已返回队列！")
 			continue
 		} else {
-			_, err_24 := file_24.Write(data_24)
+			for k, v := range hourly.Hours {
+				data_Tmperature, _ := v.Temperature.(map[string]interface{})
+				data_RealFeelTemperature, _ := v.RealFeelTemperature.(map[string]interface{})
+				save.Hours = append(save.Hours, Hour{DateTime: v.DateTime, WeatherIcon: v.WeatherIcon, IconPhrase: v.IconPhrase, RelativeHumidity: v.RelativeHumidity, Temperature: data_Tmperature["Value"], RealFeelTemperature: data_RealFeelTemperature["Value"], Unit: data_Tmperature["Unit"].(string)})
+				if k == 0 {
+					history = save.Hours[0]
+				}
+			}
+			//save future 24 hours forecast data
+			data_24, err24 := json.Marshal(save)
+			if err24 != nil {
+				fmt.Println("data_24 json err:", err)
+				ch <- city
+				continue
+			}
+			path_24 := dataSavePath_24 + city.Path + city.Id + ".json"
+			file_24, err_24 := os.OpenFile(path_24, os.O_CREATE|os.O_RDWR, 0660)
 			if nil != err_24 {
-				logger.Println(city.Id + ".json 写入失败！")
+				logger.Println(city.Id + ".json打开文件失败！")
 				ch <- city
 				continue
+			} else {
+				_, err_24 := file_24.Write(data_24)
+				if nil != err_24 {
+					logger.Println(city.Id + ".json 写入失败！")
+					ch <- city
+					continue
+				}
 			}
-		}
-		file_24.Close()
-		//save future 24 hours first hour forecast date
-		data_1, err_1 := json.Marshal(history)
-		if err_1 != nil {
-			logger.Panicln("data_1 json err", err_1)
-			ch <- city
-			continue
-		}
-		dir := history.DateTime[11:13]
-		path_1 := dataSavePath_1 + dir + "/" + city.Id + ".json"
-		file_1, err_1 := os.OpenFile(path_1, os.O_CREATE|os.O_RDWR, 0660)
-		if nil != err_1 {
-			logger.Println(city.Id + ".json打开文件失败！")
-			ch <- city
-			continue
-		} else {
-			_, err_1 := file_1.Write(data_1)
-			if nil != err_1 {
-				logger.Println(city.Id + ".json 写入失败！")
-				ch <- city
-				continue
+			file_24.Close()
+			//save future 24 hours first hour forecast date
+			if len(history.DateTime) > 15 {
+				data_1, err_1 := json.Marshal(history)
+				if err_1 != nil {
+					logger.Panicln("data_1 json err", err_1)
+					ch <- city
+					continue
+				}
+				dir := history.DateTime[11:13]
+				path_1 := dataSavePath_1 + dir + "/" + city.Id + ".json"
+				file_1, err_1 := os.OpenFile(path_1, os.O_CREATE|os.O_RDWR, 0660)
+				if nil != err_1 {
+					logger.Println(city.Id + ".json打开文件失败！")
+					ch <- city
+					continue
+				} else {
+					_, err_1 := file_1.Write(data_1)
+					if nil != err_1 {
+						logger.Println(city.Id + ".json 写入失败！")
+						ch <- city
+						continue
+					}
+				}
+				file_1.Close()
+			} else {
+				logger.Println("城市：" + city.Id + "历史1小时获取失败失败！")
 			}
-		}
-		file_1.Close()
+			l.Lock()
+			finishCount++
+			fmt.Println(finishCount)
+			l.Unlock()
 
-		//l.Lock()
-		//finishCount++
-		//l.Unlock()
+		}
 	}
 }
 
@@ -344,3 +350,4 @@ func readFileArray(fileName string) (result []City, err error) {
 	}
 	return cities, nil
 }
+
