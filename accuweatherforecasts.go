@@ -200,7 +200,6 @@ func startRequest(ch chan City) {
 		//save datas
 		var hourly Hourly
 		var save Hourly
-		var history Hour
 		err = json.Unmarshal(body, &hourly.Hours)
 		if err != nil {
 			logger.Println("城市：" + city.Id + "解析响应失败，已返回队列！")
@@ -227,7 +226,7 @@ func startRequest(ch chan City) {
 
 			historyFile, err := os.OpenFile(path, os.O_RDONLY, 0440)
 			if err != nil {
-				logger.Println("城市：" + city.Id + "打开历史" + strconv.Itoa(hour-2) + "小时数据失败")
+				//logger.Println("城市：" + city.Id + "打开历史" + strconv.Itoa(hour-2) + "小时数据失败")
 			} else {
 				var content []byte
 				srcReader := bufio.NewReader(historyFile)
@@ -257,13 +256,10 @@ func startRequest(ch chan City) {
 				}
 			}
 			//添加未来24小时预报数据
-			for k, v := range hourly.Hours {
+			for _, v := range hourly.Hours {
 				data_Tmperature, _ := v.Temperature.(map[string]interface{})
 				data_RealFeelTemperature, _ := v.RealFeelTemperature.(map[string]interface{})
 				save.Hours = append(save.Hours, Hour{DateTime: v.DateTime, WeatherIcon: v.WeatherIcon, IconPhrase: v.IconPhrase, RelativeHumidity: v.RelativeHumidity, Temperature: data_Tmperature["Value"], RealFeelTemperature: data_RealFeelTemperature["Value"], Unit: data_Tmperature["Unit"].(string)})
-				if k == 0 {
-					history = save.Hours[0]
-				}
 			}
 			//save future 24 hours forecast data
 			data_24, err24 := json.Marshal(save)
@@ -296,47 +292,36 @@ func startRequest(ch chan City) {
 				}
 			}
 			file_24.Close()
-			//save future 24 hours first hour forecast date
-			if len(history.DateTime) > 15 {
-				data_1, err_1 := json.Marshal(history)
-				if err_1 != nil {
-					logger.Panicln("data_1 json err", err_1)
-					city.Count++
-					if city.Count <= 2 {
-						ch <- city
-						city.Count++
-					}
-					continue
-				}
-				dir := history.DateTime[11:13]
-				path_1 := dataSavePath_1 + dir + "/" + city.Id + ".json"
-				file_1, err_1 := os.OpenFile(path_1, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0660)
-				if nil != err_1 {
-					logger.Println(city.Id + ".json打开文件失败！")
-					if city.Count <= 2 {
-						ch <- city
-						city.Count++
-					}
-					continue
-				} else {
-					_, err_1 := file_1.Write(data_1)
-					if nil != err_1 {
-						logger.Println(city.Id + ".json 写入失败！")
-						if city.Count <= 2 {
-							ch <- city
-							city.Count++
-						}
+			//保存未来24小时数据
+			for _, v := range save.Hours {
+				if len(v.DateTime) > 15 {
+					data_1, err_1 := json.Marshal(v)
+					if err_1 != nil {
+						logger.Panicln("data_1 json err", err_1)
 						continue
 					}
+					dir := v.DateTime[11:13]
+					path_1 := dataSavePath_1 + dir + "/" + city.Id + "_" + dir + ".json"
+					file_1, err_1 := os.OpenFile(path_1, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0660)
+					if nil != err_1 {
+						logger.Println(city.Id + "_" + dir + ".json打开文件失败！")
+						continue
+					} else {
+						_, err_1 := file_1.Write(data_1)
+						if nil != err_1 {
+							logger.Println(city.Id + "_" + dir + ".json 写入失败！")
+							continue
+						}
+					}
+					file_1.Close()
+				} else {
+					logger.Println("城市：" + city.Id + "历史保存失败！")
 				}
-				file_1.Close()
-			} else {
-				logger.Println("城市：" + city.Id + "历史1小时获取失败失败！")
 			}
-			//l.Lock()
-			//finishCount++
-			//fmt.Println(finishCount)
-			//l.Unlock()
+			l.Lock()
+			finishCount++
+			fmt.Println(finishCount)
+			l.Unlock()
 		}
 	}
 }
