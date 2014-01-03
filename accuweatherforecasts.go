@@ -210,6 +210,53 @@ func startRequest(ch chan City) {
 			}
 			continue
 		} else {
+			//添加历史1小时数据
+			var path string = ""
+			hour, _ := strconv.Atoi(hourly.Hours[0].DateTime[11:13])
+			if hour < 10 {
+				if hour == 0 {
+					hour = 24
+				}
+				if hour == 1 {
+					hour = 25
+				}
+				path = dataSavePath_1 + "0" + strconv.Itoa(hour-2) + "/" + city.Id + ".json"
+			} else {
+				path = dataSavePath_1 + strconv.Itoa(hour-2) + "/" + city.Id + ".json"
+			}
+
+			historyFile, err := os.OpenFile(path, os.O_RDONLY, 0440)
+			if err != nil {
+				logger.Println("城市：" + city.Id + "打开历史" + strconv.Itoa(hour-2) + "小时数据失败")
+			} else {
+				var content []byte
+				srcReader := bufio.NewReader(historyFile)
+				for {
+					str, _, err := srcReader.ReadLine()
+					if nil != err {
+						if io.EOF == err {
+							break
+						} else {
+							logger.Println("读取城市信息文件发生错误")
+						}
+					}
+					content = str[:]
+					if 0 == len(content) || "\r\n" == string(content) {
+						continue
+					}
+				}
+				historyFile.Close()
+				var temp Hour
+				start := strings.Index(string(content), "{")
+				end := strings.Index(string(content), "}") + 1
+				err = json.Unmarshal(content[start:end], &temp)
+				if err != nil {
+					logger.Println("解析历史一小时数据失败")
+				} else {
+					save.Hours = append(save.Hours, Hour{DateTime: temp.DateTime, WeatherIcon: temp.WeatherIcon, IconPhrase: temp.IconPhrase, RelativeHumidity: temp.RelativeHumidity, Temperature: temp.Temperature, RealFeelTemperature: temp.RealFeelTemperature, Unit: temp.Unit})
+				}
+			}
+			//添加未来24小时预报数据
 			for k, v := range hourly.Hours {
 				data_Tmperature, _ := v.Temperature.(map[string]interface{})
 				data_RealFeelTemperature, _ := v.RealFeelTemperature.(map[string]interface{})
@@ -229,7 +276,7 @@ func startRequest(ch chan City) {
 				continue
 			}
 			path_24 := dataSavePath_24 + city.Path + city.Id + ".json"
-			file_24, err_24 := os.OpenFile(path_24, os.O_CREATE|os.O_RDWR, 0660)
+			file_24, err_24 := os.OpenFile(path_24, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0660)
 			if nil != err_24 {
 				logger.Println(city.Id + ".json打开文件失败！")
 				if city.Count <= 2 {
@@ -263,7 +310,7 @@ func startRequest(ch chan City) {
 				}
 				dir := history.DateTime[11:13]
 				path_1 := dataSavePath_1 + dir + "/" + city.Id + ".json"
-				file_1, err_1 := os.OpenFile(path_1, os.O_CREATE|os.O_RDWR, 0660)
+				file_1, err_1 := os.OpenFile(path_1, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0660)
 				if nil != err_1 {
 					logger.Println(city.Id + ".json打开文件失败！")
 					if city.Count <= 2 {
@@ -286,10 +333,10 @@ func startRequest(ch chan City) {
 			} else {
 				logger.Println("城市：" + city.Id + "历史1小时获取失败失败！")
 			}
-			l.Lock()
-			finishCount++
-			fmt.Println(finishCount)
-			l.Unlock()
+			//l.Lock()
+			//finishCount++
+			//fmt.Println(finishCount)
+			//l.Unlock()
 		}
 	}
 }
